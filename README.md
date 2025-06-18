@@ -87,3 +87,36 @@ Checked: 132 | OK: 127 | Broken: 5 | Current: https://example.com/page/about.htm
 ## 📜 License
 
 MIT License © Siavash Ashkiani
+
+
+---
+
+## 🧱 Using the Pre-Built Executable (No Python Needed)
+
+If you don’t want to install Python or dependencies, you can use the standalone Windows `.exe` version.
+
+### 🔽 Download
+
+You’ll find the executable in the **Releases** section of this repository (look for `deadlink-detector.exe`).
+
+### ▶️ How to Run
+
+Open Command Prompt and run:
+
+```bash
+deadlink-detector.exe <start_url> [optional_output_file.csv]
+```
+
+#### Example:
+
+```bash
+deadlink-detector.exe https://www.arc-it.net
+```
+
+It will produce a CSV report of broken links in the current directory.
+
+### 🧩 Notes:
+
+- Works on Windows 10/11
+- No installation needed — just run the `.exe`
+- Console output and logging behave the same as the Python version
