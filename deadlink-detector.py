@@ -2,12 +2,16 @@
 """
 Link Checker Script
 Author: Siavash Ashkiani
-Purpose: Crawl a website and report broken internal links with real-time status.
-Only internal (same-domain) links are checked.
-External domains and fragments (#) are ignored.
+Purpose: Crawl a website and report broken links with real-time status.
+Features:
+  - Internal link crawling up to a configurable depth
+  - Optional external link checking and crawling up to a separate depth
+  - Adjustable delay between requests
+  - Adjustable HTTP timeout
+  - Linux-style CLI flags: -h/--help, -v/--version, etc.
 """
 
-import sys
+import argparse
 import csv
 import time
 import requests
@@ -15,6 +19,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from collections import defaultdict
 
+# ─── Globals ─────────────────────────────────────────────────────────────────
 visited = set()
 broken_links = defaultdict(list)
 page_counter = 0
@@ -22,14 +27,26 @@ link_counter = 0
 ok_counter = 0
 broken_counter = 0
 
-from urllib.parse import urlparse
+# to be set from CLI args
+start_url        = ""
+log_filename     = ""
+use_external     = False
+max_internal     = 5
+max_external     = 0
+delay            = 0.05
+req_timeout      = 5.0
+
+# ANSI color codes
+GREEN = "\033[92m"
+RED   = "\033[91m"
+RESET = "\033[0m"
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def get_log_filename(base_url):
     parsed = urlparse(base_url)
-    domain = parsed.netloc.replace(":", "_")  # replace : in case of port
+    domain = parsed.netloc.replace(":", "_")
     return f"broken_links_{domain}.csv"
-
-log_filename = ""  # will be set in __main__
 
 def is_http_url(url):
     return url.startswith("http://") or url.startswith("https://")
@@ -40,61 +57,87 @@ def write_broken_link_to_log(source_page, bad_link, error):
         writer.writerow([source_page, bad_link, error])
 
 def check_link(base_url, link_url):
+    """HEAD request; returns (full_url, error) if broken, else (None, None)."""
     global link_counter, ok_counter, broken_counter
     full_url = urljoin(base_url, link_url)
     link_counter += 1
     try:
-        response = requests.head(full_url, allow_redirects=True, timeout=5)
-        if response.status_code >= 400:
+        resp = requests.head(full_url, allow_redirects=True, timeout=req_timeout)
+        if resp.status_code >= 400:
             broken_counter += 1
-            return full_url, response.status_code
-        else:
-            ok_counter += 1
+            return full_url, resp.status_code
+        ok_counter += 1
     except Exception as e:
         broken_counter += 1
         return full_url, str(e)
     return None, None
 
-def crawl_page(url, root_url, depth=0, max_depth=5):
+def crawl_page(url, depth):
+    """Recursively crawl pages starting from 'url' at given 'depth'."""
     global page_counter
-    normalized_url = url.split('#')[0]
-    if normalized_url in visited or depth > max_depth:
+
+    normalized = url.split('#')[0]
+    if normalized in visited:
         return
-    visited.add(normalized_url)
+
+    # Determine if this URL is internal or external
+    internal = normalized.startswith(start_url)
+
+    # Depth checks
+    if internal:
+        if depth > max_internal:
+            return
+    else:
+        if (not use_external) or depth > max_external:
+            return
+
+    visited.add(normalized)
     page_counter += 1
 
+    # Fetch page
     try:
-        res = requests.get(normalized_url, timeout=10)
+        res = requests.get(normalized, timeout=req_timeout)
         res.raise_for_status()
     except Exception as e:
-        broken_links[normalized_url].append((normalized_url, f"PAGE LOAD ERROR: {e}"))
-        write_broken_link_to_log(normalized_url, normalized_url, f"PAGE LOAD ERROR: {e}")
+        err = f"PAGE LOAD ERROR: {e}"
+        broken_links[normalized].append((normalized, err))
+        write_broken_link_to_log(normalized, normalized, err)
         return
 
     soup = BeautifulSoup(res.text, "html.parser")
-    links = soup.find_all("a", href=True)
-
-    for tag in links:
+    for tag in soup.find_all("a", href=True):
         href = tag["href"]
-        full_link = urljoin(normalized_url, href)
-        parsed_full = urlparse(full_link)
-        full_link_clean = full_link.split('#')[0]
+        full = urljoin(normalized, href).split('#')[0]
 
-        if not full_link_clean.startswith(root_url):
+        # Skip external if not wanted
+        if not full.startswith(start_url) and not use_external:
             continue
 
-        # Update single-line status bar
-        status_line = f"Checked: {link_counter+1} | OK: {GREEN}{ok_counter}{RESET} | Broken: {RED}{broken_counter}{RESET} | Current: {full_link_clean[:80]}"
-        print("\r" + status_line.ljust(120), end="", flush=True)
+        # Print status line
+        status = (
+            f"Checked: {link_counter+1} | "
+            f"OK: {GREEN}{ok_counter}{RESET} | "
+            f"Broken: {RED}{broken_counter}{RESET} | "
+            f"Current: {full[:80]}"
+        )
+        print("\r" + status.ljust(120), end="", flush=True)
 
-        link_url, error = check_link(normalized_url, href)
-        if error:
-            broken_links[normalized_url].append((link_url, error))
-            write_broken_link_to_log(normalized_url, link_url, error)
+        # Check the link
+        bad, err = check_link(normalized, href)
+        if err:
+            broken_links[normalized].append((bad, err))
+            write_broken_link_to_log(normalized, bad, err)
 
-        crawl_page(full_link_clean, root_url, depth + 1, max_depth)
+        # Recurse
+        next_depth = depth + 1
+        if full.startswith(start_url):
+            if next_depth <= max_internal:
+                crawl_page(full, next_depth)
+        else:
+            if use_external and next_depth <= max_external:
+                crawl_page(full, next_depth)
 
-    time.sleep(0.05)
+    time.sleep(delay)
 
 def print_final_report():
     print("\n\n✅ Crawl complete.")
@@ -104,40 +147,55 @@ def print_final_report():
     print(f"Broken links: {broken_counter}")
     print(f"📄 Broken link details saved to: {log_filename}")
 
+# ─── CLI ─────────────────────────────────────────────────────────────────────
 
-GREEN = "\033[92m"
-RED = "\033[91m"
-BLUE = "\033[94m"
-TEAL = "\033[36m"  # or for bright teal: "\033[96m"
-YELLOW = "\033[93m"
-RESET = "\033[0m"
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Crawl a site and report broken links (internal and/or external).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("start_url",
+                        help="URL to begin crawling from")
+    parser.add_argument("-o", "--output-file",
+                        dest="output_file",
+                        help="CSV file to write broken-link log into")
+    parser.add_argument("-e", "--external", action="store_true",
+                        help="also check and crawl external links")
+    parser.add_argument("--depth-internal", type=int, default=5,
+                        help="max recursion depth for internal links")
+    parser.add_argument("--depth-external", type=int, default=0,
+                        help="max recursion depth for external links (0 = only status check)")
+    parser.add_argument("--delay", type=float, default=0.05,
+                        help="seconds to sleep between each request")
+    parser.add_argument("--timeout", type=float, default=5.0,
+                        help="HTTP request timeout in seconds")
+    parser.add_argument("-v", "--version", action="version",
+                        version="deadlink-detector 1.1.0")
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("\nLink Checker by Siavash Ashkiani")
-        print("Usage: python deadlink-detector.py <starting_url> [output_csv_file]")
-        print("Example: python deadlink-detector.py https://www.arc-it.net")
-        print("         python deadlink-detector.py https://example.com report.csv")
-        sys.exit(1)
+    args = parse_args()
 
-    start_url = sys.argv[1]
-    if not is_http_url(start_url):
-        print("Only http(s) URLs are supported.")
-        sys.exit(1)
+    # Assign globals from args
+    start_url     = args.start_url
+    log_filename  = args.output_file if args.output_file else get_log_filename(start_url)
+    use_external  = args.external
+    max_internal  = args.depth_internal
+    max_external  = args.depth_external
+    delay         = args.delay
+    req_timeout   = args.timeout
 
-    # Use custom file name if given, else fallback to domain-based name
-    log_filename = sys.argv[2] if len(sys.argv) > 2 else get_log_filename(start_url)
-
-    # Prepare log file
+    # Prepare CSV log
     with open(log_filename, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(["Source Page", "Broken Link", "Error/Status"])
-    
+
+    # Header
     print(f"{GREEN}Link Checker Script{RESET}")
     print("Author: Siavash Ashkiani")
-    print("Purpose: Crawl a website and report broken internal links with real-time status.")
-    print("⚠️ Only internal (same-domain) links are checked. External domains and fragments (#) are ignored.")
-
+    print("Purpose: Crawl a website and report broken links in real time.")
+    print("⚠️  Only internal links by default; use --external to include others.")
     print(f"🌐 Starting crawl from: {start_url}\n")
-    crawl_page(start_url, start_url)
+
+    crawl_page(start_url, depth=0)
     print_final_report()

@@ -35,17 +35,39 @@ pip install requests beautifulsoup4
 ### 🖥️ Run the tool
 
 ```bash
-python deadlink-detector.py <start_url> [optional_output_file.csv]
+python deadlink-detector.py <start_url> [-o OUTPUT_FILE] [--external] [--depth-internal N] [--depth-external M] [--delay SECONDS] [--timeout SECONDS] <start_url>: the URL to begin crawling from
+
+-o, --output-file: CSV log filename (default: broken_links_<domain>.csv)
+
+-e, --external: also check & crawl external links
+
+--depth-internal N: max depth for internal links (default 5)
+
+--depth-external M: max depth for external links (default 0: status only)
+
+--delay SECONDS: seconds to sleep between requests (default 0.05)
+
+--timeout SECONDS: HTTP request timeout (default 5.0)
+
+-v, --version: show version and exit
+
+-h, --help: show this help message
+
 ```
 
 #### Examples
+
+Default (internal only, depth=5)
 
 ```bash
 # Crawl arc-it.net and log to broken_links_arc-it.net.csv
 python deadlink-detector.py https://www.arc-it.net
 
-# Crawl a custom site and log to a specific file
-python deadlink-detector.py https://example.com myreport.csv
+# Crawl a custom site and log to a specific file with external status only
+python deadlink-detector.py https://www.arc-it.net --external --depth-external 0 --delay 0.1 --timeout 5 -o custom_report.csv
+
+# Full recursion (internal 4, external 2)
+python deadlink-detector.py https://example.com --depth-internal 4 --external --depth-external 2
 ```
 
 ---
@@ -70,17 +92,17 @@ https://example.com/page2.html,https://example.com/timeout.js,ReadTimeout
 Checked: 132 | OK: 127 | Broken: 5 | Current: https://example.com/page/about.html
 ```
 
-> Note: Only **one line** is printed to the screen and updated in place.  
+> Note: Only **one line** is printed to the screen and updated in place (maximize your terminal window for best result).  
 > Broken links are not printed — they are saved directly to the log file.
 
 ---
 
 ## ✏️ Notes
 
-- This tool checks only **internal links** (same domain).
-- External links and media (images, scripts, etc.) are skipped.
-- Links with fragments (e.g. `#section`) are normalized before crawling.
-- By default, max depth is set to 5.
+- This tool checks only **internal links** by default.
+- External links are only checked/crawled if --external is used.
+- Links with fragments (e.g. #section) are normalized before crawling.
+- Default, max depth is 5 for internal, 0 for external.
 
 ---
 
@@ -97,20 +119,20 @@ If you don’t want to install Python or dependencies, you can use the standalon
 
 ### 🔽 Download
 
-You’ll find the executable in the **Releases** section of this repository (look for `deadlink-detector.exe`).
+You’ll find the executable in the **Releases** section of this repository (look for `siavash-deadlink-detector.exe`).
 
 ### ▶️ How to Run
 
 Open Command Prompt and run:
 
 ```bash
-deadlink-detector.exe <start_url> [optional_output_file.csv]
+siavash-deadlink-detector.exe <start_url> [options]
 ```
 
 #### Example:
 
 ```bash
-deadlink-detector.exe https://www.arc-it.net
+siavash-deadlink-detector.exe https://www.arc-it.net --external -o report.csv
 ```
 
 It will produce a CSV report of broken links in the current directory.
