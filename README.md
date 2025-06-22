@@ -2,7 +2,7 @@
 
 **Author:** Siavash Ashkiani  
 **License:** MIT  
-**Version:** 1.0.0
+**Version:** 1.1.0
 
 A fast, terminal-based tool for scanning internal links on a website and detecting broken URLs.  
 Includes live progress display, CSV logging, and optional output file customization.
