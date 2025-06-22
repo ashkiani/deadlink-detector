@@ -56,21 +56,66 @@ def write_broken_link_to_log(source_page, bad_link, error):
         writer = csv.writer(f)
         writer.writerow([source_page, bad_link, error])
 
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 def check_link(base_url, link_url):
-    """HEAD request; returns (full_url, error) if broken, else (None, None)."""
+    """Check status of a link. Use HEAD for internal, GET for external. Upgrade to HTTPS for external HTTP links. Skip SSL verification for external HTTPS."""
     global link_counter, ok_counter, broken_counter
     full_url = urljoin(base_url, link_url)
     link_counter += 1
-    try:
-        resp = requests.head(full_url, allow_redirects=True, timeout=req_timeout)
-        if resp.status_code >= 400:
+
+    is_external = not full_url.startswith(start_url)
+
+    # For external links over HTTP, try upgrading to HTTPS first
+    if is_external and full_url.startswith("http://"):
+        https_url = full_url.replace("http://", "https://", 1)
+        try:
+            response = requests.get(
+                https_url,
+                stream=True,
+                allow_redirects=True,
+                timeout=req_timeout,
+                verify=False  # disable SSL cert check
+            )
+            if response.status_code < 400:
+                ok_counter += 1
+                return None, None
+            else:
+                broken_counter += 1
+                return https_url, response.status_code
+        except Exception as e:
             broken_counter += 1
-            return full_url, resp.status_code
-        ok_counter += 1
+            return https_url, str(e)
+
+    # If internal, or external HTTPS already, proceed normally
+    try:
+        if is_external:
+            response = requests.get(
+                full_url,
+                stream=True,
+                allow_redirects=True,
+                timeout=req_timeout,
+                verify=False  # disable SSL cert check for external
+            )
+        else:
+            response = requests.head(
+                full_url,
+                allow_redirects=True,
+                timeout=req_timeout
+            )
+
+        if response.status_code >= 400:
+            broken_counter += 1
+            return full_url, response.status_code
+        else:
+            ok_counter += 1
     except Exception as e:
         broken_counter += 1
         return full_url, str(e)
+
     return None, None
+
 
 def crawl_page(url, depth):
     """Recursively crawl pages starting from 'url' at given 'depth'."""
@@ -170,7 +215,7 @@ def parse_args():
     parser.add_argument("--timeout", type=float, default=5.0,
                         help="HTTP request timeout in seconds")
     parser.add_argument("-v", "--version", action="version",
-                        version="deadlink-detector 1.1.0")
+                        version="deadlink-detector 1.1.1")
     return parser.parse_args()
 
 if __name__ == "__main__":
